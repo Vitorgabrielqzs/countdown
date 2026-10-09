@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinExe = aplicativo de janela (não abre console) -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>Countdown</AssemblyName>
+    <RootNamespace>Countdown</RootNamespace>
+    <!-- Manifesto com suporte a DPI por monitor (nitidez em telas com escala) -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Ícone do .exe (aparece no atalho, na barra de tarefas e no Explorer) -->
+    <ApplicationIcon>Countdown.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Sons do relógio embutidos dentro do .exe (LogicalName = nome usado para achar o arquivo no código) -->
+    <EmbeddedResource Include="Sounds\*.mp3" LogicalName="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

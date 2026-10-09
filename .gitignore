@@ -1,0 +1,22 @@
+# Pastas geradas pela compilação (o .NET recria quando precisar)
+bin/
+obj/
+publish/
+
+# Executável pronto: vai anexado na página de Releases do GitHub, não no código
+*.exe
+*.pdb
+
+# Sons de terceiros (licença Pixabay): não são redistribuídos soltos; vão só embutidos no .exe da Release
+Sounds/
+
+# Arquivos do Visual Studio / VS Code / Rider
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Temporários
+*.tmp
+Thumbs.db
