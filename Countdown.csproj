@@ -18,6 +18,8 @@
   <ItemGroup>
     <!-- Sons do relógio embutidos dentro do .exe (LogicalName = nome usado para achar o arquivo no código) -->
     <EmbeddedResource Include="Sounds\*.mp3" LogicalName="%(Filename)%(Extension)" />
+    <!-- Ícone também embutido como recurso, para a janela usar direto (sem depender do cache do Windows) -->
+    <EmbeddedResource Include="Countdown.ico" LogicalName="Countdown.ico" />
   </ItemGroup>
 
 </Project>

@@ -20,6 +20,7 @@ using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 
@@ -345,6 +346,26 @@ namespace Countdown
             GlyphBack = "", GlyphBrush = "";
 
         static readonly ControlTemplate InputTemplate = BuildInputTemplate();
+
+        // Ícone das janelas (barra de tarefas e Alt+Tab), lido de dentro do próprio .exe.
+        // Definido na janela, o Windows mostra este ícone na hora, sem depender do cache de ícones.
+        public static readonly ImageSource? AppIcon = LoadAppIcon();
+
+        static ImageSource? LoadAppIcon()
+        {
+            try
+            {
+                using var stream = typeof(Theme).Assembly.GetManifestResourceStream("Countdown.ico");
+                if (stream == null) return null;
+                // Decodificador de .ico: o WPF escolhe sozinho o tamanho certo (barra de tarefas, Alt+Tab...)
+                var decoder = new IconBitmapDecoder(stream, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                return decoder.Frames[0];
+            }
+            catch
+            {
+                return null;   // sem o recurso: a janela usa o ícone padrão do .exe
+            }
+        }
 
         // Barra de rolagem fina, nas cores do tema (a padrão do Windows é larga e cinza-clara)
         const string ScrollBarXaml = @"
@@ -904,6 +925,7 @@ namespace Countdown
             w.WindowStyle = WindowStyle.None;
             w.AllowsTransparency = true;
             w.Background = Brushes.Transparent;
+            w.Icon = AppIcon;
             w.Topmost = true;
             w.ResizeMode = ResizeMode.NoResize;
             w.SizeToContent = SizeToContent.WidthAndHeight;   // a janela se ajusta ao conteúdo
@@ -1495,6 +1517,7 @@ namespace Countdown
         {
             cfg = config;
             Title = "Countdown";
+            Icon = Theme.AppIcon;
             WindowStyle = WindowStyle.None;
             ResizeMode = ResizeMode.NoResize;   // junto com WindowStyle.None, faz o maximizado cobrir também a barra de tarefas
             UseLayoutRounding = true;
