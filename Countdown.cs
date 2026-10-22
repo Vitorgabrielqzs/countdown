@@ -35,6 +35,22 @@ namespace Countdown
         public DateTime Target { get; set; }                            // data/hora de destino (horário local)
     }
 
+    // Cor escolhida para uma parte do app: null = a cor padrão do tema
+    public class ColorChoice
+    {
+        public string? Color { get; set; }                              // "#RRGGBB" (cor única ou cor de cima do degradê)
+        public string? Color2 { get; set; }                             // cor de baixo do degradê (null = sem degradê)
+    }
+
+    // Personalização de um tema (cada tema guarda as suas)
+    public class CustomColors
+    {
+        public ColorChoice Digits { get; set; } = new ColorChoice();     // números das plaquinhas
+        public ColorChoice Cards { get; set; } = new ColorChoice();      // fundo das plaquinhas
+        public ColorChoice Background { get; set; } = new ColorChoice(); // fundo da janela
+        public ColorChoice Accent { get; set; } = new ColorChoice();     // destaque (ícones, botões, chaves)
+    }
+
     public class AppConfig
     {
         public List<EventItem> Events { get; set; } = new List<EventItem>();
@@ -42,10 +58,13 @@ namespace Countdown
         public bool DarkMode { get; set; } = true;                      // tema escolhido (padrão: escuro)
         public bool Transparent { get; set; }                           // modo transparente do mini pop-up
         public bool ShowSeconds { get; set; }                           // mostra a plaquinha de segundos
+        public bool ShowLabels { get; set; }                            // mostra DIAS / HORAS / ... embaixo das plaquinhas
         public bool Sound { get; set; } = true;                         // tique-taque ligado (só toca com os segundos)
         public int SoundIndex { get; set; }                             // qual som (posição na lista ClockSound.Tracks)
         public double Volume { get; set; } = 0.5;                       // volume do som (0 = mudo, 1 = máximo)
         public List<string> Phrases { get; set; } = new List<string>(); // frases motivadoras da tela cheia
+        public CustomColors DarkColors { get; set; } = new CustomColors();   // personalização do tema escuro
+        public CustomColors LightColors { get; set; } = new CustomColors();  // personalização do tema claro
         public double? PopupRight { get; set; }                         // posição do mini pop-up (borda direita)
         public double? PopupTop { get; set; }                           // posição do mini pop-up (topo)
 
@@ -96,6 +115,15 @@ namespace Countdown
                 if (cfg == null) return null;
                 cfg.Events ??= new List<EventItem>();
                 cfg.Phrases ??= new List<string>();
+                cfg.DarkColors ??= new CustomColors();
+                cfg.LightColors ??= new CustomColors();
+                foreach (var colors in new[] { cfg.DarkColors, cfg.LightColors })
+                {
+                    colors.Digits ??= new ColorChoice();
+                    colors.Cards ??= new ColorChoice();
+                    colors.Background ??= new ColorChoice();
+                    colors.Accent ??= new ColorChoice();
+                }
                 // Converte o formato antigo (um evento só) para a lista de eventos
                 if (cfg.Events.Count == 0 && !string.IsNullOrWhiteSpace(cfg.Name))
                     cfg.Events.Add(new EventItem { Name = cfg.Name, Target = cfg.Target ?? DateTime.Now });
@@ -336,14 +364,15 @@ namespace Countdown
 
         // Bahnschrift vem com o Windows 10/11; a variante Condensed lembra os números de flip clock
         public static readonly FontFamily Digits = new FontFamily("Bahnschrift SemiBold Condensed, Bahnschrift, Arial Narrow");
-        public static readonly FontFamily Ui = new FontFamily("Bahnschrift, Segoe UI");
+        // Textos: Sitka (serifada que vem com o Windows 10/11), parecida com a fonte do Claude
+        public static readonly FontFamily Ui = new FontFamily("Sitka Text, Segoe UI");
         // Ícones vetoriais do próprio Windows (Win11: Segoe Fluent Icons; Win10: Segoe MDL2 Assets)
         public static readonly FontFamily Icons = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
 
         public const string GlyphGear = "", GlyphClose = "", GlyphFullScreen = "",
             GlyphBackToWindow = "", GlyphEdit = "", GlyphAdd = "", GlyphDelete = "",
             GlyphCalendar = "", GlyphPalette = "", GlyphVolume = "", GlyphSystem = "",
-            GlyphBack = "", GlyphBrush = "", GlyphNext = "\uE76C";
+            GlyphBack = "", GlyphBrush = "", GlyphNext = "\uE76C", GlyphColor = "\uE771", GlyphReset = "\uE72C";
 
         static readonly ControlTemplate InputTemplate = BuildInputTemplate();
 
@@ -391,11 +420,15 @@ namespace Countdown
   </Setter>
 </Style>";
 
-        public static void Apply(bool dark)
+        // Aplica o tema escolhido (claro/escuro) com a personalização de cores dele.
+        // cfg = null (antes do primeiro evento): tema escuro sem personalização
+        public static void Apply(AppConfig? cfg)
         {
+            bool dark = cfg?.DarkMode ?? true;
+            var custom = cfg == null ? new CustomColors() : dark ? cfg.DarkColors : cfg.LightColors;
             var r = Application.Current.Resources;
             if (!r.Contains(typeof(ScrollBar))) r[typeof(ScrollBar)] = (Style)XamlReader.Parse(ScrollBarXaml);
-            AccentColor = dark ? Rgb(0xF0, 0xA8, 0x30) : Rgb(0xC2, 0x48, 0x48);   // âmbar no escuro, vermelho no claro
+            AccentColor = Parse(custom.Accent.Color) ?? (dark ? Rgb(0xE0, 0x4C, 0xE6) : Rgb(0xC2, 0x48, 0x48));   // padrão: rosa no escuro, vermelho no claro
 
             r["Accent"] = Solid(AccentColor);
             r["Title"] = Solid(dark ? Rgb(0xF5, 0xF5, 0xF5) : Rgb(0x22, 0x22, 0x22));
@@ -403,46 +436,43 @@ namespace Countdown
             r["Label"] = Solid(dark ? Rgb(0x9A, 0x9A, 0x9A) : Rgb(0x7A, 0x7A, 0x7A));
             r["Error"] = Solid(dark ? Rgb(0xFF, 0x6B, 0x6B) : Rgb(0xC2, 0x48, 0x48));
 
-            // Fundo: escuro com uma luz suave no centro-topo / claro com degradê vertical
-            r["PanelBack"] = dark
-                ? Frozen(new RadialGradientBrush(Rgb(0x30, 0x30, 0x30), Rgb(0x14, 0x14, 0x14))
-                    { GradientOrigin = new Point(0.5, 0.3), Center = new Point(0.5, 0.3), RadiusX = 0.9, RadiusY = 1.1 })
-                : Vertical(Rgb(0xFB, 0xFB, 0xFB), Rgb(0xE4, 0xE4, 0xE4));
+            // Fundo: preto no escuro / claro com degradê vertical
+            r["PanelBack"] = dark ? Solid(Colors.Black) : Vertical(Rgb(0xFB, 0xFB, 0xFB), Rgb(0xE4, 0xE4, 0xE4));
             // Borda: clara em cima e escura embaixo, dá impressão de relevo
             r["PanelBorder"] = dark
-                ? Vertical(Rgb(0x52, 0x52, 0x52), Rgb(0x1A, 0x1A, 0x1A))
+                ? Vertical(Rgb(0x3A, 0x3A, 0x3A), Rgb(0x14, 0x14, 0x14))
                 : Vertical(Colors.White, Rgb(0xC2, 0xC2, 0xC2));
             // Painel de frases da tela cheia
-            r["EditorBack"] = Solid(dark ? Color.FromArgb(0xF0, 0x1A, 0x1A, 0x1A) : Color.FromArgb(0xF2, 0xFF, 0xFF, 0xFF));
+            r["EditorBack"] = Solid(dark ? Color.FromArgb(0xF0, 0x0C, 0x0C, 0x0C) : Color.FromArgb(0xF2, 0xFF, 0xFF, 0xFF));
 
             // Configurações: menu lateral, item selecionado/hover, linhas, cartões de evento, chaves, rolagem
-            r["SidebarBack"] = Solid(dark ? Rgb(0x17, 0x17, 0x17) : Rgb(0xEC, 0xEC, 0xEC));
-            r["NavSelected"] = Solid(dark ? Rgb(0x2E, 0x2E, 0x2E) : Rgb(0xDA, 0xDA, 0xDA));
-            r["NavHover"] = Solid(dark ? Rgb(0x23, 0x23, 0x23) : Rgb(0xE3, 0xE3, 0xE3));
-            r["RowLine"] = Solid(dark ? Rgb(0x2C, 0x2C, 0x2C) : Rgb(0xD9, 0xD9, 0xD9));
-            r["CardRow"] = Solid(dark ? Rgb(0x1A, 0x1A, 0x1A) : Colors.White);
-            r["SwitchOff"] = Solid(dark ? Rgb(0x26, 0x26, 0x26) : Rgb(0xE6, 0xE6, 0xE6));
-            r["SwitchBorder"] = Solid(dark ? Rgb(0x5A, 0x5A, 0x5A) : Rgb(0xA8, 0xA8, 0xA8));
-            r["SwitchThumbOn"] = Solid(dark ? Rgb(0x15, 0x15, 0x15) : Colors.White);
+            r["SidebarBack"] = Solid(dark ? Rgb(0x0A, 0x0A, 0x0A) : Rgb(0xEC, 0xEC, 0xEC));
+            r["NavSelected"] = Solid(dark ? Rgb(0x22, 0x22, 0x22) : Rgb(0xDA, 0xDA, 0xDA));
+            r["NavHover"] = Solid(dark ? Rgb(0x17, 0x17, 0x17) : Rgb(0xE3, 0xE3, 0xE3));
+            r["RowLine"] = Solid(dark ? Rgb(0x1E, 0x1E, 0x1E) : Rgb(0xD9, 0xD9, 0xD9));
+            r["CardRow"] = Solid(dark ? Rgb(0x0E, 0x0E, 0x0E) : Colors.White);
+            r["SwitchOff"] = Solid(dark ? Rgb(0x1A, 0x1A, 0x1A) : Rgb(0xE6, 0xE6, 0xE6));
+            r["SwitchBorder"] = Solid(dark ? Rgb(0x50, 0x50, 0x50) : Rgb(0xA8, 0xA8, 0xA8));
+            r["SwitchThumbOn"] = Solid(dark ? OnAccent(AccentColor) : Colors.White);
             r["SwitchThumbOff"] = Solid(dark ? Rgb(0xB0, 0xB0, 0xB0) : Rgb(0x6E, 0x6E, 0x6E));
-            r["ScrollThumb"] = Solid(dark ? Rgb(0x50, 0x50, 0x50) : Rgb(0xB5, 0xB5, 0xB5));
+            r["ScrollThumb"] = Solid(dark ? Rgb(0x40, 0x40, 0x40) : Rgb(0xB5, 0xB5, 0xB5));
 
             // Campos e botões
-            r["InputBack"] = Solid(dark ? Rgb(0x1C, 0x1C, 0x1C) : Colors.White);
+            r["InputBack"] = Solid(dark ? Rgb(0x10, 0x10, 0x10) : Colors.White);
             r["InputFore"] = Solid(dark ? Rgb(0xEE, 0xEE, 0xEE) : Rgb(0x2B, 0x2B, 0x2B));
-            r["InputBorder"] = Solid(dark ? Rgb(0x44, 0x44, 0x44) : Rgb(0xCF, 0xCF, 0xCF));
+            r["InputBorder"] = Solid(dark ? Rgb(0x3A, 0x3A, 0x3A) : Rgb(0xCF, 0xCF, 0xCF));
             r["ButtonBack"] = Solid(dark ? AccentColor : Rgb(0x1A, 0x1A, 0x1A));
-            r["ButtonHover"] = Solid(dark ? Rgb(0xFF, 0xC1, 0x5A) : AccentColor);
-            r["ButtonFore"] = Solid(dark ? Rgb(0x15, 0x15, 0x15) : Colors.White);
+            r["ButtonHover"] = Solid(dark ? Mix(AccentColor, Colors.White, 0.3) : AccentColor);
+            r["ButtonFore"] = Solid(dark ? OnAccent(AccentColor) : Colors.White);
 
-            // Plaquinhas: escuras nos dois temas, como num flip clock de verdade.
+            // Plaquinhas: quase pretas nos dois temas, como num flip clock de verdade.
             // Metade de cima um pouco mais clara que a de baixo, com corte seco no meio.
             r["CardBack"] = Frozen(new LinearGradientBrush(new GradientStopCollection
             {
-                new GradientStop(Rgb(0x40, 0x40, 0x40), 0.0),
-                new GradientStop(Rgb(0x30, 0x30, 0x30), 0.5),
-                new GradientStop(Rgb(0x24, 0x24, 0x24), 0.5),
-                new GradientStop(Rgb(0x19, 0x19, 0x19), 1.0),
+                new GradientStop(Rgb(0x1E, 0x1E, 0x1E), 0.0),
+                new GradientStop(Rgb(0x17, 0x17, 0x17), 0.5),
+                new GradientStop(Rgb(0x11, 0x11, 0x11), 0.5),
+                new GradientStop(Rgb(0x0C, 0x0C, 0x0C), 1.0),
             }, 90));
             // Contorno da plaquinha: fio de luz no topo, sombra na base
             r["CardEdge"] = Frozen(new LinearGradientBrush(new GradientStopCollection
@@ -452,10 +482,56 @@ namespace Countdown
                 new GradientStop(Color.FromArgb(0x00, 0x00, 0x00, 0x00), 0.5),
                 new GradientStop(Color.FromArgb(0x70, 0x00, 0x00, 0x00), 1.0),
             }, 90));
-            r["Digit"] = Vertical(Colors.White, Rgb(0xC4, 0xC4, 0xC4));          // números: branco descendo para cinza claro
+            // Números: no escuro, cinza claro (sem brilho, para não ofuscar no preto); no claro, branco descendo para cinza claro
+            r["Digit"] = dark ? Vertical(Rgb(0xCC, 0xCC, 0xCC), Rgb(0xB4, 0xB4, 0xB4)) : Vertical(Colors.White, Rgb(0xC4, 0xC4, 0xC4));
             r["Split"] = Solid(Rgb(0x0A, 0x0A, 0x0A));                           // fenda do meio
             r["SplitLight"] = Solid(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));     // brilho logo abaixo da fenda
+
+            // --- Personalização: troca só o que foi escolhido ---
+            if (Parse(custom.Digits.Color) is Color digit)
+                r["Digit"] = Vertical(digit, Parse(custom.Digits.Color2) ?? Mix(digit, Colors.Black, 0.12));   // cor única: leve sombra embaixo
+            if (Parse(custom.Background.Color) is Color back)
+                r["PanelBack"] = Parse(custom.Background.Color2) is Color back2 ? Vertical(back, back2) : Solid(back);
+            if (Parse(custom.Cards.Color) is Color card)
+            {
+                // Mantém o jeito de flip clock: metade de cima mais clara, corte seco no meio
+                Color bottom = Parse(custom.Cards.Color2) ?? card;
+                Color middle = Mix(card, bottom, 0.5);
+                r["CardBack"] = Frozen(new LinearGradientBrush(new GradientStopCollection
+                {
+                    new GradientStop(Mix(card, Colors.White, 0.06), 0.0),
+                    new GradientStop(middle, 0.5),
+                    new GradientStop(Mix(middle, Colors.Black, 0.18), 0.5),
+                    new GradientStop(Mix(bottom, Colors.Black, 0.3), 1.0),
+                }, 90));
+            }
         }
+
+        // Paleta da personalização (nome, cor). A ordem é a ordem das bolinhas nas configurações
+        public static readonly (string Name, string Hex)[] Palette =
+        {
+            ("Branco", "#FFFFFF"), ("Cinza", "#B4B4B4"), ("Grafite", "#3A3A3A"), ("Preto", "#0A0A0A"),
+            ("Amarelo", "#FACC15"), ("Âmbar", "#F0A830"), ("Laranja", "#F97316"), ("Vermelho", "#E5484D"),
+            ("Rosa", "#E04CE6"), ("Lilás", "#C084FC"), ("Roxo", "#7C3AED"), ("Azul-claro", "#5AB0FF"),
+            ("Azul", "#2563EB"), ("Azul-marinho", "#1E3A8A"), ("Ciano", "#22D3EE"), ("Verde", "#22C55E"),
+        };
+
+        public static Color? Parse(string? hex)
+        {
+            if (string.IsNullOrEmpty(hex)) return null;
+            try { return (Color)ColorConverter.ConvertFromString(hex); }
+            catch { return null; }   // valor estranho no arquivo: usa a cor padrão
+        }
+
+        // Mistura duas cores (amount = 0: só a primeira; 1: só a segunda)
+        static Color Mix(Color a, Color b, double amount) => Color.FromRgb(
+            (byte)Math.Round(a.R + (b.R - a.R) * amount),
+            (byte)Math.Round(a.G + (b.G - a.G) * amount),
+            (byte)Math.Round(a.B + (b.B - a.B) * amount));
+
+        // Texto em cima da cor de destaque: escuro em cor clara, branco em cor escura
+        static Color OnAccent(Color accent) =>
+            0.299 * accent.R + 0.587 * accent.G + 0.114 * accent.B > 150 ? Rgb(0x0A, 0x0A, 0x0A) : Colors.White;
 
         static Color Rgb(byte r, byte g, byte b) => Color.FromRgb(r, g, b);
         static Brush Solid(Color c) => Frozen(new SolidColorBrush(c));
@@ -566,13 +642,7 @@ namespace Countdown
         // A sombra fica numa borda separada para não ser aplicada ao conteúdo (o que borraria o texto).
         public static Grid Panel(UIElement content)
         {
-            var shadow = new Border
-            {
-                Background = Brushes.Black,
-                CornerRadius = new CornerRadius(14),
-                Margin = new Thickness(1),
-                Effect = new DropShadowEffect { BlurRadius = 16, ShadowDepth = 3, Opacity = 0.45 },
-            };
+            var shadow = SoftShadow(new CornerRadius(14), 3, 10, 0x16);
             var panel = new Border
             {
                 BorderThickness = new Thickness(1),
@@ -588,6 +658,28 @@ namespace Countdown
             var grid = new Grid { Margin = new Thickness(14) };   // margem = espaço para a sombra aparecer
             grid.Children.Add(shadow);
             grid.Children.Add(panel);
+            return grid;
+        }
+
+        // Sombra suave sem desfoque: algumas camadas translúcidas, cada uma um pouco maior.
+        // Fica quase igual a um DropShadowEffect, mas o desfoque de verdade é recalculado a cada
+        // redesenho (pesa muito no processador); estas camadas são desenhadas uma vez só
+        public static Grid SoftShadow(CornerRadius radius, double depth, double spread, byte alpha = 0x22)
+        {
+            var layer = new SolidColorBrush(Color.FromArgb(alpha, 0, 0, 0));
+            layer.Freeze();
+            var grid = new Grid { IsHitTestVisible = false, RenderTransform = new TranslateTransform(0, depth) };
+            const int layers = 4;
+            for (int i = layers; i >= 1; i--)
+            {
+                double grow = spread * (i - 1) / layers;   // a camada de dentro tem o tamanho exato do elemento
+                grid.Children.Add(new Border
+                {
+                    Margin = new Thickness(-grow),
+                    CornerRadius = new CornerRadius(radius.TopLeft + grow),
+                    Background = layer,
+                });
+            }
             return grid;
         }
 
@@ -965,28 +1057,33 @@ namespace Countdown
             Width = w;
             Height = h;
 
-            // Sombra sob a plaquinha
-            Children.Add(new Border
-            {
-                Background = Brushes.Black,
-                CornerRadius = round,
-                Margin = new Thickness(1),
-                Effect = new DropShadowEffect { BlurRadius = 10 * s, ShadowDepth = 3 * s, Opacity = 0.5 },
-            });
+            // Sombra sob a plaquinha: camadas translúcidas fixas (desfoque de verdade seria
+            // recalculado a cada quadro da dobra e pesa muito no processador)
+            Children.Add(Theme.SoftShadow(round, 3 * s, 3 * s));
 
-            Children.Add(Half(true, s, out topText, out _));        // fixa de cima
-            Children.Add(Half(false, s, out bottomText, out _));    // fixa de baixo: mostra o antigo até a aba cair
+            Children.Add(Half(true, s, out topText));        // fixa de cima
+            Children.Add(Half(false, s, out bottomText));    // fixa de baixo: mostra o antigo até a aba cair
 
-            // Abas: encolhem/esticam na vertical a partir da linha do meio (simula a dobra)
-            flapTop = Half(true, s, out flapTopText, out flapTopShade);
-            flapBottom = Half(false, s, out flapBottomText, out flapBottomShade);
+            // Abas: encolhem/esticam na vertical a partir da linha do meio (simula a dobra).
+            // BitmapCache: a aba vira uma imagem pronta e a dobra só estica essa imagem,
+            // sem redesenhar os números a cada quadro
+            flapTop = Half(true, s, out flapTopText);
+            flapBottom = Half(false, s, out flapBottomText);
             flapTopScale = new ScaleTransform(1, 1, 0, h / 2);
             flapBottomScale = new ScaleTransform(1, 0, 0, h / 2);
             flapTop.RenderTransform = flapTopScale;
             flapBottom.RenderTransform = flapBottomScale;
-            flapTop.Visibility = flapBottom.Visibility = Visibility.Hidden;
+            flapTop.CacheMode = new BitmapCache { SnapsToDevicePixels = true };
+            flapBottom.CacheMode = new BitmapCache { SnapsToDevicePixels = true };
+            // Películas pretas que escurecem as abas na dobra: ficam fora da imagem guardada
+            // (senão a imagem teria de ser refeita a cada quadro) e dobram junto com elas
+            flapTopShade = Shade(true, flapTopScale);
+            flapBottomShade = Shade(false, flapBottomScale);
+            flapTop.Visibility = flapBottom.Visibility = flapTopShade.Visibility = flapBottomShade.Visibility = Visibility.Hidden;
             Children.Add(flapTop);
+            Children.Add(flapTopShade);
             Children.Add(flapBottom);
+            Children.Add(flapBottomShade);
 
             // Fenda do meio: faixa escura + fio de brilho logo abaixo (espessuras em pixels inteiros)
             double gapH = Math.Max(2, Math.Round(1.6 * s));
@@ -1016,9 +1113,8 @@ namespace Countdown
             Children.Add(edge);
         }
 
-        // Metade da plaquinha: um cartão inteiro recortado (Clip) só na parte de cima ou de baixo.
-        // "shade" é uma película preta usada para escurecer a aba enquanto ela dobra.
-        Border Half(bool top, double s, out TextBlock text, out Border shade)
+        // Metade da plaquinha: um cartão inteiro recortado (Clip) só na parte de cima ou de baixo
+        Border Half(bool top, double s, out TextBlock text)
         {
             text = new TextBlock
             {
@@ -1028,22 +1124,45 @@ namespace Countdown
                 VerticalAlignment = VerticalAlignment.Center,
             };
             text.SetResourceReference(TextBlock.ForegroundProperty, "Digit");
-            shade = new Border { Background = Brushes.Black, CornerRadius = round, Opacity = 0 };
-
-            var inner = new Grid();
-            inner.Children.Add(text);
-            inner.Children.Add(shade);
 
             var card = new Border
             {
                 Width = w,
                 Height = h,
                 CornerRadius = round,
-                Child = inner,
-                Clip = new RectangleGeometry(top ? new Rect(0, 0, w, h / 2) : new Rect(0, h / 2, w, h / 2)),
+                Child = text,
+                Clip = HalfClip(top),
             };
             card.SetResourceReference(Border.BackgroundProperty, "CardBack");
             return card;
+        }
+
+        // Película preta do tamanho de meia plaquinha, que dobra junto com a aba (mesma transformação)
+        Border Shade(bool top, ScaleTransform fold) => new Border
+        {
+            Width = w,
+            Height = h,
+            CornerRadius = round,
+            Background = Brushes.Black,
+            Opacity = 0,
+            Clip = HalfClip(top),
+            RenderTransform = fold,
+            IsHitTestVisible = false,
+        };
+
+        RectangleGeometry HalfClip(bool top)
+        {
+            var clip = new RectangleGeometry(top ? new Rect(0, 0, w, h / 2) : new Rect(0, h / 2, w, h / 2));
+            clip.Freeze();
+            return clip;
+        }
+
+        // A dobra roda a 30 quadros por segundo: dura só ~0,3 s e fica igual de suave aos olhos,
+        // com metade do trabalho de desenho
+        static T Paced<T>(T animation) where T : Timeline
+        {
+            Timeline.SetDesiredFrameRate(animation, 30);
+            return animation;
         }
 
         // Mostra o número; com animate = true a aba dobra
@@ -1063,35 +1182,36 @@ namespace Countdown
             bottomText.Text = old;        // embaixo continua o antigo até a aba de baixo cobrir
             flapTopText.Text = old;
             flapBottomText.Text = next;
-            flapTop.Visibility = flapBottom.Visibility = Visibility.Visible;
+            flapTop.Visibility = flapBottom.Visibility = flapTopShade.Visibility = flapBottomShade.Visibility = Visibility.Visible;
 
             // 1ª metade: a aba de cima (número antigo) dobra para baixo e escurece
-            var fold = new DoubleAnimation(1, 0, halfFlip)
+            var fold = Paced(new DoubleAnimation(1, 0, halfFlip)
             {
                 EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn },
-            };
+            });
             fold.Completed += (_, _) => topText.Text = value;   // aba na metade do giro: só agora o número novo aparece
             flapTopScale.BeginAnimation(ScaleTransform.ScaleYProperty, fold);
-            flapTopShade.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 0.55, halfFlip));
+            flapTopShade.BeginAnimation(OpacityProperty, Paced(new DoubleAnimation(0, 0.55, halfFlip)));
 
             // 2ª metade: a aba de baixo (número novo) abre a partir do meio e clareia
-            var unfold = new DoubleAnimation(0, 1, halfFlip)
+            var unfold = Paced(new DoubleAnimation(0, 1, halfFlip)
             {
                 BeginTime = halfFlip,
                 EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.2 },  // leve "quique"
-            };
+            });
             unfold.Completed += (_, _) =>
             {
                 bottomText.Text = value;
-                flapTop.Visibility = flapBottom.Visibility = Visibility.Hidden;
+                // Escondidas, as abas e películas não custam nada até a próxima virada
+                flapTop.Visibility = flapBottom.Visibility = flapTopShade.Visibility = flapBottomShade.Visibility = Visibility.Hidden;
             };
             flapBottomScale.BeginAnimation(ScaleTransform.ScaleYProperty, unfold);
-            flapBottomShade.BeginAnimation(OpacityProperty, new DoubleAnimation(0.55, 0, halfFlip) { BeginTime = halfFlip });
+            flapBottomShade.BeginAnimation(OpacityProperty, Paced(new DoubleAnimation(0.55, 0, halfFlip) { BeginTime = halfFlip }));
         }
     }
 
     // ---------------------------------------------------------------
-    // Uma plaquinha com o rótulo embaixo (ex.: "HORAS")
+    // Uma plaquinha com o rótulo embaixo (ex.: "HORAS"), se o rótulo estiver ligado
     // ---------------------------------------------------------------
     class FlipGroup : StackPanel
     {
@@ -1099,11 +1219,12 @@ namespace Countdown
         readonly double s;
         FlipCard? card;
 
-        public FlipGroup(string label, double scale)
+        public FlipGroup(string label, double scale, bool showLabel)
         {
             s = scale;
             Margin = new Thickness(Math.Round(4 * s), 0, Math.Round(4 * s), 0);
             Children.Add(holder);
+            if (!showLabel) return;
             var text = Theme.Crisp(new TextBlock
             {
                 Text = label,
@@ -1136,6 +1257,7 @@ namespace Countdown
     class CounterView : Grid
     {
         public bool ShowsSeconds { get; }
+        public bool ShowsLabels { get; }
         readonly AppConfig cfg;
         readonly double s;
         readonly FlipGroup[] groups;
@@ -1151,6 +1273,7 @@ namespace Countdown
             cfg = config;
             s = scale;
             ShowsSeconds = cfg.ShowSeconds;
+            ShowsLabels = cfg.ShowLabels;
 
             cards = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
             string[] labels = ShowsSeconds
@@ -1159,7 +1282,7 @@ namespace Countdown
             groups = new FlipGroup[labels.Length];
             for (int i = 0; i < labels.Length; i++)
             {
-                groups[i] = new FlipGroup(labels[i], s);
+                groups[i] = new FlipGroup(labels[i], s, ShowsLabels);
                 cards.Children.Add(groups[i]);
             }
 
@@ -1169,7 +1292,8 @@ namespace Countdown
                 Text = "CHEGOU O DIA!",
                 FontFamily = Theme.Digits,
                 FontSize = 34 * s,
-                Effect = new DropShadowEffect { BlurRadius = 6 * s, ShadowDepth = 0, Opacity = 0.9 },
+                Effect = new DropShadowEffect { BlurRadius = 16 * s, ShadowDepth = 0, Opacity = 0.9 },
+                CacheMode = new BitmapCache(),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 Visibility = Visibility.Collapsed,
@@ -1249,19 +1373,17 @@ namespace Countdown
             cards.Visibility = arrived ? Visibility.Hidden : Visibility.Visible;
             arrivedText.Visibility = arrived ? Visibility.Visible : Visibility.Collapsed;
 
-            var glow = (DropShadowEffect)arrivedText.Effect;
             if (arrived)
             {
-                var pulse = TimeSpan.FromSeconds(0.9);
-                glow.BeginAnimation(DropShadowEffect.BlurRadiusProperty,
-                    new DoubleAnimation(4 * s, 28 * s, pulse) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
-                arrivedText.BeginAnimation(OpacityProperty,
-                    new DoubleAnimation(0.75, 1, pulse) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
+                // Pulsa só a opacidade, a 20 quadros/s: o texto com brilho fica guardado como imagem
+                // (BitmapCache) e o desfoque não é recalculado a cada quadro
+                var pulse = new DoubleAnimation(0.55, 1, TimeSpan.FromSeconds(0.9)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever };
+                Timeline.SetDesiredFrameRate(pulse, 20);
+                arrivedText.BeginAnimation(OpacityProperty, pulse);
             }
             else
             {
                 // null = remove a animação e volta ao valor original
-                glow.BeginAnimation(DropShadowEffect.BlurRadiusProperty, null);
                 arrivedText.BeginAnimation(OpacityProperty, null);
                 lastTotal = -1;
             }
@@ -1576,9 +1698,9 @@ namespace Countdown
         void ApplySettings()
         {
             title.Text = cfg.Active.Name.ToUpperInvariant();
-            if (counter.ShowsSeconds != cfg.ShowSeconds)
+            if (counter.ShowsSeconds != cfg.ShowSeconds || counter.ShowsLabels != cfg.ShowLabels)
             {
-                counter = new CounterView(cfg, 1);   // com ou sem a plaquinha de segundos
+                counter = new CounterView(cfg, 1);   // com ou sem a plaquinha de segundos / os rótulos
                 counterHost.Child = counter;
             }
             else
@@ -1593,7 +1715,7 @@ namespace Countdown
         void ToggleTheme()
         {
             cfg.DarkMode = !cfg.DarkMode;
-            Theme.Apply(cfg.DarkMode);
+            Theme.Apply(cfg);
             Storage.Save(cfg);
             UpdateThemeIcon();
             counter.UpdateGlowColor();
@@ -1630,6 +1752,7 @@ namespace Countdown
             settingsOpen = false;
             ShowView(mainView, -24);
             ApplySettings();   // depois de voltar à tela: se trocou de evento, as plaquinhas viram para os novos números
+            Memory.TrimSoon();
         }
 
         // Carrossel: o próximo timer entra pela direita (depois do último, volta ao primeiro)
@@ -1671,6 +1794,7 @@ namespace Countdown
             fullscreen.Closed += (_, _) =>
             {
                 fullscreen = null;
+                Memory.TrimSoon();   // a tela cheia usava bem mais memória que o mini pop-up
                 UpdateThemeIcon();
                 Show();
                 Activate();
@@ -1730,6 +1854,7 @@ namespace Countdown
         CounterView? stageCounter;
         double scale;
         TimeSpan lastFrame;
+        bool moving;   // as frases estão sendo movidas a cada quadro
 
         public FullscreenWindow(AppConfig config, Point center)
         {
@@ -1790,13 +1915,12 @@ namespace Countdown
 
             // O contador é (re)construído no tamanho exato da tela, sem ampliar imagem
             SizeChanged += (_, _) => BuildStage();
-            // Depois do primeiro desenho a tela já tem tamanho: solta as frases e liga a animação
+            // Depois do primeiro desenho a tela já tem tamanho: solta as frases (cada uma liga a animação)
             ContentRendered += (_, _) =>
             {
                 foreach (string p in cfg.Phrases) Spawn(p);
-                CompositionTarget.Rendering += OnFrame;   // chamado a cada quadro da tela (movimento suave)
             };
-            Closed += (_, _) => CompositionTarget.Rendering -= OnFrame;
+            Closed += (_, _) => SetMoving(false);
 
             // Esc: volta das configurações/novo timer; senão fecha o painel de frases; senão sai da tela cheia
             KeyDown += (_, e) =>
@@ -1824,7 +1948,7 @@ namespace Countdown
         {
             if (ActualWidth < 100 || ActualHeight < 100) return;
             double baseWidth = (cfg.ShowSeconds ? 4 : 3) * 74 + 8;   // largura do contador em escala 1
-            const double baseHeight = 125;                            // título + plaquinhas + rótulos em escala 1
+            double baseHeight = cfg.ShowLabels ? 125 : 108;           // título + plaquinhas (+ rótulos) em escala 1
             double s = Math.Min(ActualWidth * 0.62 / baseWidth, ActualHeight * 0.5 / baseHeight);
             if (Math.Abs(s - scale) < 0.01) return;   // tamanho não mudou de verdade
             scale = s;
@@ -1875,7 +1999,7 @@ namespace Countdown
         void ToggleTheme()
         {
             cfg.DarkMode = !cfg.DarkMode;
-            Theme.Apply(cfg.DarkMode);
+            Theme.Apply(cfg);
             Storage.Save(cfg);
             stageCounter?.UpdateGlowColor();
             Theme.Wiggle(brush);
@@ -1920,12 +2044,13 @@ namespace Countdown
         {
             settingsLayer.Child = null;
             pageCarousel.Cancel();   // saiu com Esc ou X no meio do 1º toque: some com a dica
+            stageCounter?.UpdateGlowColor();   // a cor de destaque pode ter mudado na personalização
             mainLayer.Visibility = Visibility.Visible;
             Theme.SlideIn(mainLayer, 0, 0);
             Focus();   // o campo de texto saiu da tela: o teclado volta para a janela
-            if (stageCounter == null || stageCounter.ShowsSeconds != cfg.ShowSeconds)
+            if (stageCounter == null || stageCounter.ShowsSeconds != cfg.ShowSeconds || stageCounter.ShowsLabels != cfg.ShowLabels)
             {
-                scale = 0;   // ligou/desligou os segundos: remonta o contador
+                scale = 0;   // ligou/desligou os segundos ou os rótulos: remonta o contador
                 BuildStage();
             }
             else
@@ -2046,6 +2171,7 @@ namespace Countdown
             var p = floating.Find(f => f.Text == text);
             if (p == null) return;
             floating.Remove(p);
+            if (floating.Count == 0) SetMoving(false);   // sem frases, a tela não precisa ser redesenhada a cada quadro
             var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(500));   // some devagar
             fade.Completed += (_, _) => phraseLayer.Children.Remove(p.Element);
             p.Element.BeginAnimation(OpacityProperty, fade);
@@ -2069,8 +2195,10 @@ namespace Countdown
                 MaxWidth = width * 0.45,
                 Opacity = 0,
             };
-            // Renderização de texto própria para texto em movimento (evita "tremido")
+            // Renderização de texto própria para texto em movimento (evita "tremido");
+            // BitmapCache: a frase vira uma imagem e só a posição muda a cada quadro
             TextOptions.SetTextHintingMode(t, TextHintingMode.Animated);
+            t.CacheMode = new BitmapCache();
             t.SetResourceReference(TextBlock.ForegroundProperty, random.NextDouble() < 0.3 ? "Accent" : "Title");
             var move = new TranslateTransform();
             t.RenderTransform = move;
@@ -2092,9 +2220,20 @@ namespace Countdown
             move.X = p.X;
             move.Y = p.Y;
             floating.Add(p);
+            SetMoving(true);
 
             // Aparece aos poucos, ficando semitransparente (não compete com o contador)
             t.BeginAnimation(OpacityProperty, new DoubleAnimation(0.3 + random.NextDouble() * 0.3, TimeSpan.FromSeconds(1.5)));
+        }
+
+        // Liga/desliga o movimento a cada quadro (só existe trabalho quando há frases flutuando)
+        void SetMoving(bool on)
+        {
+            if (on == moving) return;
+            moving = on;
+            if (on) CompositionTarget.Rendering += OnFrame;   // chamado a cada quadro da tela (movimento suave)
+            else CompositionTarget.Rendering -= OnFrame;
+            lastFrame = TimeSpan.Zero;
         }
 
         // A cada quadro: move as frases e faz elas "quicarem" nas bordas da tela
@@ -2286,7 +2425,7 @@ namespace Countdown
         readonly AppConfig cfg;
         readonly Action onChanged;              // avisa a janela para se atualizar
         readonly List<Border> navItems = new List<Border>();
-        readonly UIElement[] sections;
+        readonly UIElement?[] sections = new UIElement?[5];   // cada tópico é montado só quando é aberto
         readonly Border contentHost = new Border();
         readonly StackPanel eventList = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
         readonly ScrollViewer eventScroll;
@@ -2309,7 +2448,6 @@ namespace Countdown
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 Content = eventList,
             };
-            sections = new[] { EventsSection(), AppearanceSection(), SoundSection(), SystemSection() };
 
             // --- Menu lateral: voltar + título, depois os tópicos ---
             var backIcon = Theme.Icon(Theme.GlyphBack, "Voltar (Esc)", back, 12);
@@ -2324,8 +2462,9 @@ namespace Countdown
             nav.Children.Add(top);
             nav.Children.Add(NavItem(0, Theme.GlyphCalendar, "Eventos"));
             nav.Children.Add(NavItem(1, Theme.GlyphPalette, "Aparência"));
-            nav.Children.Add(NavItem(2, Theme.GlyphVolume, "Som"));
-            nav.Children.Add(NavItem(3, Theme.GlyphSystem, "Sistema"));
+            nav.Children.Add(NavItem(2, Theme.GlyphColor, "Personalização"));
+            nav.Children.Add(NavItem(3, Theme.GlyphVolume, "Som"));
+            nav.Children.Add(NavItem(4, Theme.GlyphSystem, "Sistema"));
             var sidebar = new Border { CornerRadius = new CornerRadius(13, 0, 0, 13), Child = nav };
             sidebar.SetResourceReference(Border.BackgroundProperty, "SidebarBack");
 
@@ -2394,8 +2533,16 @@ namespace Countdown
                 // TextElement.Foreground é herdado: pinta o ícone e o texto do item de uma vez
                 navItems[i].SetResourceReference(TextElement.ForegroundProperty, on ? "Title" : "Label");
             }
-            contentHost.Child = sections[index];
-            Theme.SlideIn(sections[index]);   // o tópico entra deslizando
+            var section = sections[index] ??= index switch
+            {
+                0 => EventsSection(),
+                1 => AppearanceSection(),
+                2 => CustomizeSection(),
+                3 => SoundSection(),
+                _ => SystemSection(),
+            };
+            contentHost.Child = section;
+            Theme.SlideIn(section);   // o tópico entra deslizando
         }
 
         // Salva no JSON, ajusta o som e avisa a janela
@@ -2629,7 +2776,169 @@ namespace Countdown
             Row("Modo transparente", "O mini pop-up fica semitransparente e volta ao normal com o mouse em cima.",
                 Theme.Switch(cfg.Transparent, on => { cfg.Transparent = on; Changed(); })),
             Row("Mostrar segundos", "Adiciona a plaquinha de segundos ao contador.",
-                Theme.Switch(cfg.ShowSeconds, on => { cfg.ShowSeconds = on; Changed(); UpdateTimers(); })));
+                Theme.Switch(cfg.ShowSeconds, on => { cfg.ShowSeconds = on; Changed(); UpdateTimers(); })),
+            Row("Mostrar nomes", "Mostra DIAS, HORAS, MINUTOS e SEGUNDOS embaixo das plaquinhas.",
+                Theme.Switch(cfg.ShowLabels, on => { cfg.ShowLabels = on; Changed(); })));
+
+        // --- Tópico: Personalização (cores do tema atual, com degradê opcional) ---
+
+        UIElement CustomizeSection()
+        {
+            var colors = cfg.DarkMode ? cfg.DarkColors : cfg.LightColors;
+            var note = Theme.Text($"Cores do tema {(cfg.DarkMode ? "escuro" : "claro")}. O outro tema guarda as cores dele: troque no pincel para editar.", 11, "Label");
+            note.Margin = new Thickness(0, 0, 0, 4);
+
+            var reset = Theme.Button("RESTAURAR CORES PADRÃO", () =>
+            {
+                if (cfg.DarkMode) cfg.DarkColors = new CustomColors();
+                else cfg.LightColors = new CustomColors();
+                ColorsChanged();
+                sections[2] = CustomizeSection();   // remonta a página com tudo no padrão
+                contentHost.Child = sections[2];
+            }, compact: true);
+            reset.HorizontalAlignment = HorizontalAlignment.Left;
+            reset.Margin = new Thickness(0, 12, 0, 4);
+
+            var section = Section("Personalização",
+                note,
+                ColorRow("Números", "Cor dos números das plaquinhas.", colors.Digits, true),
+                ColorRow("Plaquinhas", "Fundo das plaquinhas.", colors.Cards, true),
+                ColorRow("Fundo", "Fundo da janela e da tela cheia.", colors.Background, true),
+                ColorRow("Destaque", "Ícones, botões, chaves e a mensagem final.", colors.Accent, false),
+                reset);
+            return new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = section,
+            };
+        }
+
+        // Uma parte do app: nome, descrição, chave de degradê e as paletas de cor
+        StackPanel ColorRow(string title, string description, ColorChoice choice, bool allowGradient)
+        {
+            var topCaption = Theme.Text("", 11, "Label");
+            var bottomCaption = Theme.Text("Cor de baixo", 11, "Label");
+            bottomCaption.Margin = new Thickness(0, 8, 0, 0);
+            var bottomHost = new Border();
+
+            void Render()
+            {
+                bool gradient = choice.Color2 != null;
+                topCaption.Text = gradient ? "Cor de cima" : "Cor";
+                bottomCaption.Visibility = gradient ? Visibility.Visible : Visibility.Collapsed;
+                bottomHost.Visibility = gradient ? Visibility.Visible : Visibility.Collapsed;
+                // Na cor de baixo não há "padrão": tirar o degradê é pela chave
+                bottomHost.Child = gradient ? Palette(choice.Color2, false, hex => { choice.Color2 = hex; ColorsChanged(); }) : null;
+            }
+
+            Border? gradientSwitch = null;
+            if (allowGradient)
+            {
+                gradientSwitch = Theme.Switch(choice.Color2 != null, on =>
+                {
+                    // Ao ligar, começa com uma cor que contrasta (dá para ver o degradê na hora)
+                    choice.Color2 = on ? (choice.Color == "#7C3AED" ? "#22D3EE" : "#7C3AED") : null;
+                    ColorsChanged();
+                    Render();
+                });
+            }
+            UIElement? control = null;
+            if (gradientSwitch != null)
+            {
+                var label = Theme.Text("Degradê", 11, "Label");
+                label.VerticalAlignment = VerticalAlignment.Center;
+                label.Margin = new Thickness(0, 0, 8, 0);
+                var box = new StackPanel { Orientation = Orientation.Horizontal };
+                box.Children.Add(label);
+                box.Children.Add(gradientSwitch);
+                control = box;
+            }
+
+            var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+            panel.Children.Add(Row(title, description, control));
+            panel.Children.Add(topCaption);
+            panel.Children.Add(Palette(choice.Color, true, hex => { choice.Color = hex; ColorsChanged(); }));
+            panel.Children.Add(bottomCaption);
+            panel.Children.Add(bottomHost);
+            Render();
+            return panel;
+        }
+
+        // Bolinhas de cor; a escolhida ganha um anel. withDefault = primeira bolinha volta ao padrão do tema (null)
+        static WrapPanel Palette(string? current, bool withDefault, Action<string?> changed)
+        {
+            var wrap = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };
+            var rings = new List<(Border Ring, string? Hex)>();
+
+            void Render()
+            {
+                foreach (var (ring, hex) in rings)
+                {
+                    if (string.Equals(hex, current, StringComparison.OrdinalIgnoreCase)) ring.SetResourceReference(Border.BorderBrushProperty, "Title");
+                    else ring.BorderBrush = Brushes.Transparent;
+                }
+            }
+
+            void Add(string? hex, string tip)
+            {
+                var dot = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1) };
+                dot.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+                if (hex == null)
+                {
+                    // "Padrão do tema": bolinha neutra com o símbolo de restaurar
+                    dot.SetResourceReference(Border.BackgroundProperty, "InputBack");
+                    var glyph = new TextBlock
+                    {
+                        Text = Theme.GlyphReset,
+                        FontFamily = Theme.Icons,
+                        FontSize = 10,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    };
+                    glyph.SetResourceReference(TextBlock.ForegroundProperty, "Label");
+                    dot.Child = glyph;
+                }
+                else
+                {
+                    dot.Background = new SolidColorBrush(Theme.Parse(hex) ?? Colors.Transparent);
+                }
+                var ring = new Border
+                {
+                    CornerRadius = new CornerRadius(13),
+                    BorderThickness = new Thickness(2),
+                    Padding = new Thickness(1),
+                    Margin = new Thickness(0, 0, 4, 4),
+                    Background = Brushes.Transparent,
+                    Cursor = Cursors.Hand,
+                    ToolTip = tip,
+                    Child = dot,
+                };
+                ring.MouseLeftButtonDown += (_, e) => e.Handled = true;
+                ring.MouseLeftButtonUp += (_, e) =>
+                {
+                    e.Handled = true;
+                    current = hex;
+                    Render();
+                    changed(hex);
+                };
+                rings.Add((ring, hex));
+                wrap.Children.Add(Theme.Pressable(ring, 0.85, 1.12));
+            }
+
+            if (withDefault) Add(null, "Padrão do tema");
+            foreach (var (name, hex) in Theme.Palette) Add(hex, name);
+            Render();
+            return wrap;
+        }
+
+        // Aplica as cores na hora (tudo na tela usa as cores do tema) e salva
+        void ColorsChanged()
+        {
+            Theme.Apply(cfg);
+            Storage.Save(cfg);
+            onChanged();
+        }
 
         UIElement SoundSection()
         {
@@ -2751,6 +3060,39 @@ namespace Countdown
     }
 
     // ---------------------------------------------------------------
+    // Memória: depois de abrir o app ou fechar uma tela grande (configurações, tela cheia),
+    // limpa o que sobrou e devolve ao Windows a memória que não está mais em uso.
+    // O contador parado só precisa de uma fração do que a inicialização usou.
+    // ---------------------------------------------------------------
+    static class Memory
+    {
+        [System.Runtime.InteropServices.DllImport("psapi.dll")]
+        static extern bool EmptyWorkingSet(IntPtr process);
+
+        static DispatcherTimer? pending;
+
+        // Espera a tela assentar (animações de saída, coleta de lixo) e então limpa
+        public static void TrimSoon()
+        {
+            if (pending == null)
+            {
+                pending = new DispatcherTimer(DispatcherPriority.ApplicationIdle) { Interval = TimeSpan.FromSeconds(2) };
+                pending.Tick += (_, _) =>
+                {
+                    pending.Stop();
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    try { EmptyWorkingSet(System.Diagnostics.Process.GetCurrentProcess().Handle); }
+                    catch { }   // sem permissão: só fica sem a limpeza
+                };
+            }
+            pending.Stop();
+            pending.Start();
+        }
+    }
+
+    // ---------------------------------------------------------------
     // Ponto de entrada do programa
     // ---------------------------------------------------------------
     static class Program
@@ -2781,7 +3123,7 @@ namespace Countdown
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
 
             AppConfig? cfg = Storage.Load();
-            Theme.Apply(cfg?.DarkMode ?? true);   // aplica o tema salvo antes de abrir qualquer janela
+            Theme.Apply(cfg);   // aplica o tema salvo antes de abrir qualquer janela
 
             // Primeira vez (sem dados): pede o primeiro evento antes de mostrar o contador
             if (cfg == null)
@@ -2795,6 +3137,7 @@ namespace Countdown
 
             var window = new CountdownWindow(cfg);
             window.Closed += (_, _) => app.Shutdown();   // fechar o mini pop-up encerra o programa
+            window.ContentRendered += (_, _) => Memory.TrimSoon();   // devolve o que só a inicialização usou
 
             // Fica esperando o aviso de outra cópia; quando chega, mostra a janela que já está aberta
             var waiter = new Thread(() =>

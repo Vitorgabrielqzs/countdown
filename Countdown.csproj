@@ -13,6 +13,13 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Ícone do .exe (aparece no atalho, na barra de tarefas e no Explorer) -->
     <ApplicationIcon>Countdown.ico</ApplicationIcon>
+
+    <!-- Economia de processamento e memória (o app fica aberto o tempo todo):
+         coleta de lixo sem thread extra em segundo plano, sem otimização guiada em tempo real
+         e código já compilado para Windows x64 (ReadyToRun), sem compilar ao abrir -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>
