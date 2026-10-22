@@ -1364,6 +1364,15 @@ namespace Countdown
             return false;
         }
 
+        // Desfaz o 1º toque sem agir (ex.: apertou outra tecla no meio)
+        public void Cancel()
+        {
+            if (armed == null) return;
+            expire.Stop();
+            armed = null;
+            Hide();
+        }
+
         void Show(bool next, string message)
         {
             glyph.Text = next ? Theme.GlyphNext : Theme.GlyphAdd;
@@ -2218,14 +2227,14 @@ namespace Countdown
     }
 
     // ---------------------------------------------------------------
-    // Criar um novo timer: página aberta pelo carrossel (← ← no contador)
+    // Criar um novo timer: página aberta pelo carrossel (← ← no contador).
+    // No carrossel ela fica à esquerda dos timers: → → volta para o contador.
     // ---------------------------------------------------------------
-    class NewTimerPage : StackPanel
+    class NewTimerPage : Border
     {
         public NewTimerPage(Action<EventItem> onCreate, Action onCancel)
         {
-            Width = 240;
-            Margin = new Thickness(16);
+            var panel = new StackPanel { Width = 240, Margin = new Thickness(16) };
 
             var header = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
             var close = Theme.Icon(Theme.GlyphClose, "Voltar (Esc)", onCancel);
@@ -2238,9 +2247,26 @@ namespace Countdown
             var form = new EventForm();
             form.Saved += (name, target) => onCreate(new EventItem { Name = name, Target = target });
 
-            Children.Add(header);
-            Children.Add(form);
+            panel.Children.Add(header);
+            panel.Children.Add(form);
+            var carousel = new CarouselHint(panel, 1);
+            Child = carousel;
             Loaded += (_, _) => form.FocusName();
+
+            // → → volta para o contador. Num campo de texto, a seta só conta com o cursor no fim
+            // (ali ela não moveria o cursor); qualquer outra tecla desfaz o 1º toque
+            PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key != Key.Right)
+                {
+                    carousel.Cancel();
+                    return;
+                }
+                if (e.IsRepeat) return;
+                if (Keyboard.FocusedElement is TextBox box && (box.CaretIndex < box.Text.Length || box.SelectionLength > 0)) return;
+                e.Handled = true;
+                if (carousel.Press(Key.Right, "Aperte → de novo para voltar ao timer")) onCancel();
+            };
         }
     }
 
