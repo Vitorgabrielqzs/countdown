@@ -32,6 +32,7 @@ O cálculo é sempre **"data do evento menos agora"**, então a contagem continu
 - **Mini pop-up flutuante**: sem barra de título, sempre por cima das outras janelas, arrastável. Lembra onde você o deixou.
 - **Animação flip clock**: cada plaquinha dobra ao meio, e o número só troca quando a aba passa da metade do giro.
 - **Vários eventos**: crie quantos quiser e troque o evento exibido com um clique em **"Alternar para este"**.
+- **Carrossel pelas setas**: aperte **→** duas vezes para ir ao próximo timer, ou **←** duas vezes para criar um novo. No primeiro toque aparece uma dica animada (**>** ou **+**) explicando o que o segundo toque vai fazer.
 - **Tela cheia**: o contador é redesenhado no tamanho exato da tela, com nitidez máxima em qualquer resolução.
 - **Frases motivadoras**: na tela cheia, escreva frases que ficam flutuando pela tela.
 - **Tema claro e escuro**: troca no pincel do canto superior esquerdo.
@@ -60,7 +61,9 @@ O cálculo é sempre **"data do evento menos agora"**, então a contagem continu
 | Pincel (canto esquerdo) | Alterna tema claro/escuro |
 | Setas (canto direito) | Abre a tela cheia |
 | Engrenagem | Abre as configurações (eventos, aparência, som, sistema) |
-| `Esc` | Volta das configurações / sai da tela cheia |
+| `→` `→` | Vai para o próximo timer |
+| `←` `←` | Abre a página de criar um novo timer |
+| `Esc` | Volta das configurações ou do novo timer / sai da tela cheia |
 | `Enter` | Adiciona uma frase (tela cheia) / conclui a edição de um evento |
 | Rodinha do mouse | Ajusta o volume na barra de som |
 

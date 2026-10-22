@@ -343,7 +343,7 @@ namespace Countdown
         public const string GlyphGear = "", GlyphClose = "", GlyphFullScreen = "",
             GlyphBackToWindow = "", GlyphEdit = "", GlyphAdd = "", GlyphDelete = "",
             GlyphCalendar = "", GlyphPalette = "", GlyphVolume = "", GlyphSystem = "",
-            GlyphBack = "", GlyphBrush = "";
+            GlyphBack = "", GlyphBrush = "", GlyphNext = "\uE76C";
 
         static readonly ControlTemplate InputTemplate = BuildInputTemplate();
 
@@ -1269,6 +1269,165 @@ namespace Countdown
     }
 
     // ---------------------------------------------------------------
+    // Carrossel pelas setas do teclado: o 1º toque mostra uma dica por cima do contador
+    // (">" = ir para o próximo timer, "+" = criar um novo) e o 2º toque seguido confirma.
+    // Sem o 2º toque, a dica some sozinha.
+    // ---------------------------------------------------------------
+    class CarouselHint : Grid
+    {
+        readonly UIElement content;
+        readonly StackPanel hint;
+        readonly TextBlock glyph, caption;
+        readonly TranslateTransform glyphMove = new TranslateTransform();
+        readonly ScaleTransform glyphScale = new ScaleTransform();
+        readonly RotateTransform glyphTurn = new RotateTransform();
+        readonly DispatcherTimer expire = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.8) };   // prazo do 2º toque
+        Key? armed;   // seta apertada uma vez, esperando a segunda
+        double s = 1;
+
+        public bool IsShowing => armed != null;
+        public event Action? ShowingChanged;   // a dica apareceu ou sumiu
+
+        public CarouselHint(UIElement content, double scale)
+        {
+            this.content = content;
+
+            glyph = new TextBlock
+            {
+                FontFamily = Theme.Icons,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+            };
+            glyph.SetResourceReference(TextBlock.ForegroundProperty, "Accent");
+            var transforms = new TransformGroup();
+            transforms.Children.Add(glyphScale);
+            transforms.Children.Add(glyphTurn);
+            transforms.Children.Add(glyphMove);
+            glyph.RenderTransform = transforms;
+
+            caption = Theme.Text("", 11, "Title");
+            caption.TextAlignment = TextAlignment.Center;
+            caption.HorizontalAlignment = HorizontalAlignment.Center;
+
+            // A dica fica no mesmo lugar do contador, sem mudar o tamanho dele
+            hint = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+                Opacity = 0,
+            };
+            hint.Children.Add(glyph);
+            hint.Children.Add(caption);
+
+            Children.Add(content);
+            Children.Add(hint);
+            SetScale(scale);
+
+            expire.Tick += (_, _) =>
+            {
+                expire.Stop();
+                armed = null;
+                Hide();
+            };
+        }
+
+        // Texto da dica para cada seta
+        public static string Message(Key key, AppConfig cfg) =>
+            key == Key.Left ? "Aperte ← de novo para criar um novo timer"
+            : cfg.Events.Count > 1 ? "Aperte → de novo para ir ao próximo timer"
+            : "Este é o seu único timer. Aperte ← duas vezes para criar outro";
+
+        // Tamanho da dica acompanha o do contador (a tela cheia usa escala grande)
+        public void SetScale(double scale)
+        {
+            s = scale;
+            glyph.FontSize = 34 * s;
+            caption.FontSize = 11 * s;
+            caption.MaxWidth = 220 * s;
+            caption.Margin = new Thickness(0, 6 * s, 0, 0);
+        }
+
+        // Um toque numa seta; retorna true no 2º toque seguido da mesma seta (hora de agir)
+        public bool Press(Key key, string message)
+        {
+            expire.Stop();
+            if (armed == key)
+            {
+                armed = null;
+                Hide();
+                return true;
+            }
+            armed = key;
+            Show(key == Key.Right, message);
+            expire.Start();
+            return false;
+        }
+
+        void Show(bool next, string message)
+        {
+            glyph.Text = next ? Theme.GlyphNext : Theme.GlyphAdd;
+            caption.Text = message;
+            Fade(hint, 1, 160);
+            Fade(content, 0.1, 160);   // o contador fica apagadinho por trás
+            StopGlyph();
+            ShowingChanged?.Invoke();
+
+            if (next)
+            {
+                // ">" deslizando para a direita sem parar, apontando para o próximo timer
+                var duration = TimeSpan.FromMilliseconds(900);
+                var slide = new DoubleAnimationUsingKeyFrames { Duration = duration, RepeatBehavior = RepeatBehavior.Forever };
+                slide.KeyFrames.Add(new LinearDoubleKeyFrame(-14 * s, KeyTime.FromPercent(0)));
+                slide.KeyFrames.Add(new EasingDoubleKeyFrame(14 * s, KeyTime.FromPercent(0.8))
+                {
+                    EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
+                });
+                slide.KeyFrames.Add(new DiscreteDoubleKeyFrame(14 * s, KeyTime.FromPercent(1)));
+                var blink = new DoubleAnimationUsingKeyFrames { Duration = duration, RepeatBehavior = RepeatBehavior.Forever };
+                blink.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromPercent(0)));
+                blink.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromPercent(0.3)));
+                blink.KeyFrames.Add(new LinearDoubleKeyFrame(1, KeyTime.FromPercent(0.6)));
+                blink.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromPercent(1)));
+                glyphMove.BeginAnimation(TranslateTransform.XProperty, slide);
+                glyph.BeginAnimation(OpacityProperty, blink);
+            }
+            else
+            {
+                // "+" surgindo com um giro e um quique
+                var duration = TimeSpan.FromMilliseconds(450);
+                var grow = new DoubleAnimation(0.3, 1, duration) { EasingFunction = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.6 } };
+                glyphScale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+                glyphScale.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
+                glyphTurn.BeginAnimation(RotateTransform.AngleProperty,
+                    new DoubleAnimation(-90, 0, duration) { EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut } });
+            }
+        }
+
+        void Hide()
+        {
+            var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(220));
+            fade.Completed += (_, _) => { if (armed == null) StopGlyph(); };   // para o ">" que repete sem fim
+            hint.BeginAnimation(OpacityProperty, fade);
+            Fade(content, 1, 220);
+            ShowingChanged?.Invoke();
+        }
+
+        // null = remove a animação e volta ao valor original
+        void StopGlyph()
+        {
+            glyphMove.BeginAnimation(TranslateTransform.XProperty, null);
+            glyph.BeginAnimation(OpacityProperty, null);
+            glyphScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            glyphScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            glyphTurn.BeginAnimation(RotateTransform.AngleProperty, null);
+        }
+
+        static void Fade(UIElement element, double to, int ms) =>
+            element.BeginAnimation(OpacityProperty, new DoubleAnimation(to, TimeSpan.FromMilliseconds(ms)));
+    }
+
+    // ---------------------------------------------------------------
     // Janela principal: o mini pop-up
     // ---------------------------------------------------------------
     class CountdownWindow : Window
@@ -1280,15 +1439,18 @@ namespace Countdown
         readonly Border counterHost = new Border();
         readonly UIElement mainView;   // a página do contador (para voltar das configurações)
         readonly DispatcherTimer savePosition = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        readonly CarouselHint carousel;   // dica das setas por cima do contador
         CounterView counter;
         FullscreenWindow? fullscreen;
-        bool settingsOpen;
+        bool settingsOpen, newTimerOpen;
 
         public CountdownWindow(AppConfig config)
         {
             cfg = config;
             Theme.SetupFloating(this);
             Title = "Countdown";
+            carousel = new CarouselHint(counterHost, 1);
+            carousel.ShowingChanged += UpdateOpacity;   // no modo transparente, fica sólido para dar para ler a dica
 
             WindowStartupLocation = WindowStartupLocation.Manual;
             Loaded += (_, _) =>
@@ -1320,10 +1482,21 @@ namespace Countdown
                 cfg.PopupTop = Top;
                 Storage.Save(cfg);
             };
-            // Esc nas configurações = voltar
+            // Esc nas configurações ou no novo timer = voltar
             KeyDown += (_, e) =>
             {
-                if (e.Key == Key.Escape && settingsOpen) CloseSettings();
+                if (e.Key != Key.Escape) return;
+                if (settingsOpen) CloseSettings();
+                else if (newTimerOpen) CloseNewTimer();
+            };
+            // Setas: carrossel (→ → próximo timer, ← ← criar um novo)
+            PreviewKeyDown += (_, e) =>
+            {
+                if (settingsOpen || newTimerOpen || e.IsRepeat || (e.Key != Key.Left && e.Key != Key.Right)) return;
+                e.Handled = true;
+                if (!carousel.Press(e.Key, CarouselHint.Message(e.Key, cfg))) return;
+                if (e.Key == Key.Left) OpenNewTimer();
+                else if (cfg.Events.Count > 1) NextTimer();
             };
 
             // --- Cabeçalho: pincel (tema) à esquerda, nome no centro, tela cheia/configurações/fechar à direita ---
@@ -1355,9 +1528,10 @@ namespace Countdown
             counter = new CounterView(cfg, 1);
             counterHost.Child = counter;
 
-            var root = new StackPanel { Margin = new Thickness(14, 8, 14, 12), MinWidth = 250 };
+            // ClipToBounds: ao trocar de timer, o contador entra deslizando sem passar da borda
+            var root = new StackPanel { Margin = new Thickness(14, 8, 14, 12), MinWidth = 250, ClipToBounds = true };
             root.Children.Add(header);
-            root.Children.Add(counterHost);
+            root.Children.Add(carousel);
             mainView = Theme.Panel(root);
             Content = mainView;
 
@@ -1422,7 +1596,8 @@ namespace Countdown
         // Transição suave entre transparente e sólido
         void UpdateOpacity()
         {
-            double target = cfg.Transparent && !IsMouseOver && !settingsOpen ? TransparentOpacity : 1;
+            bool solid = IsMouseOver || settingsOpen || newTimerOpen || carousel.IsShowing;
+            double target = cfg.Transparent && !solid ? TransparentOpacity : 1;
             BeginAnimation(OpacityProperty, new DoubleAnimation(target, TimeSpan.FromMilliseconds(250)));
         }
 
@@ -1446,6 +1621,38 @@ namespace Countdown
             settingsOpen = false;
             ShowView(mainView, -24);
             ApplySettings();   // depois de voltar à tela: se trocou de evento, as plaquinhas viram para os novos números
+        }
+
+        // Carrossel: o próximo timer entra pela direita (depois do último, volta ao primeiro)
+        void NextTimer()
+        {
+            cfg.ActiveEvent = (cfg.ActiveEvent + 1) % cfg.Events.Count;
+            Storage.Save(cfg);
+            Theme.SlideIn(title, 40, 0);
+            Theme.SlideIn(counterHost, 40, 0);
+            ApplySettings();
+        }
+
+        // Carrossel: à esquerda dos timers fica a página de criar um novo
+        void OpenNewTimer()
+        {
+            newTimerOpen = true;
+            ShowView(Theme.Panel(new NewTimerPage(ev =>
+            {
+                cfg.Events.Add(ev);
+                cfg.ActiveEvent = cfg.Events.Count - 1;   // o novo timer já aparece no contador
+                Storage.Save(cfg);
+                CloseNewTimer();
+            }, CloseNewTimer)), -24);
+            UpdateOpacity();
+        }
+
+        void CloseNewTimer()
+        {
+            newTimerOpen = false;
+            ShowView(mainView, 24);
+            ApplySettings();
+            Focus();   // o campo de texto saiu da tela: o teclado volta para a janela (setas continuam valendo)
         }
 
         // Esconde o mini pop-up e abre a tela cheia no mesmo monitor; ao sair, ele volta
@@ -1508,6 +1715,7 @@ namespace Countdown
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
+        readonly CarouselHint carousel;   // dica das setas por cima do contador
         TextBlock? stageTitle;
         CounterView? stageCounter;
         double scale;
@@ -1558,8 +1766,9 @@ namespace Countdown
             stage.RenderTransform = stageShift;
 
             // Camadas, de trás para frente: frases, contador, ícones, painel de frases
+            carousel = new CarouselHint(stage, 1);
             mainLayer.Children.Add(phraseLayer);
-            mainLayer.Children.Add(stage);
+            mainLayer.Children.Add(carousel);
             mainLayer.Children.Add(brush);
             mainLayer.Children.Add(toolbar);
             mainLayer.Children.Add(editor);
@@ -1578,14 +1787,24 @@ namespace Countdown
             };
             Closed += (_, _) => CompositionTarget.Rendering -= OnFrame;
 
-            // Esc: volta das configurações; senão fecha o painel de frases; senão sai da tela cheia
+            // Esc: volta das configurações/novo timer; senão fecha o painel de frases; senão sai da tela cheia
             KeyDown += (_, e) =>
             {
                 if (e.Key != Key.Escape) return;
                 e.Handled = true;
-                if (settingsLayer.Child != null) CloseSettings();
+                if (settingsLayer.Child != null) ClosePage();
                 else if (editor.Visibility == Visibility.Visible) ToggleEditor();
                 else Close();
+            };
+            // Setas: carrossel (→ → próximo timer, ← ← criar um novo); no campo de frase, as setas movem o cursor
+            PreviewKeyDown += (_, e) =>
+            {
+                if (settingsLayer.Child != null || Keyboard.FocusedElement is TextBox || e.IsRepeat) return;
+                if (e.Key != Key.Left && e.Key != Key.Right) return;
+                e.Handled = true;
+                if (!carousel.Press(e.Key, CarouselHint.Message(e.Key, cfg))) return;
+                if (e.Key == Key.Left) OpenNewTimer();
+                else if (cfg.Events.Count > 1) NextTimer();
             };
         }
 
@@ -1618,6 +1837,7 @@ namespace Countdown
             column.Children.Add(stageCounter);
             stage.Children.Clear();
             stage.Children.Add(column);
+            carousel.SetScale(s);
             UpdateStageShift();
         }
 
@@ -1653,16 +1873,43 @@ namespace Countdown
         void OpenSettings()
         {
             mainLayer.Visibility = Visibility.Hidden;
-            var page = Theme.Panel(new SettingsPage(cfg, () => { }, CloseSettings));
+            var page = Theme.Panel(new SettingsPage(cfg, () => { }, ClosePage));
             settingsLayer.Child = page;
             Theme.SlideIn(page, 0, 16);
         }
 
-        void CloseSettings()
+        // Carrossel: a página de criar um novo timer entra pela esquerda, no mesmo lugar das configurações
+        void OpenNewTimer()
+        {
+            mainLayer.Visibility = Visibility.Hidden;
+            var page = Theme.Panel(new NewTimerPage(ev =>
+            {
+                cfg.Events.Add(ev);
+                cfg.ActiveEvent = cfg.Events.Count - 1;   // o novo timer já aparece no contador
+                Storage.Save(cfg);
+                ClosePage();
+            }, ClosePage));
+            settingsLayer.Child = page;
+            Theme.SlideIn(page, -24, 0);
+        }
+
+        // Carrossel: o próximo timer entra pela direita (depois do último, volta ao primeiro)
+        void NextTimer()
+        {
+            cfg.ActiveEvent = (cfg.ActiveEvent + 1) % cfg.Events.Count;
+            Storage.Save(cfg);
+            if (stage.Children.Count > 0) Theme.SlideIn(stage.Children[0], 12 * scale, 0);
+            if (stageTitle != null) stageTitle.Text = cfg.Active.Name.ToUpperInvariant();
+            stageCounter?.Refresh(animate: true);
+        }
+
+        // Fecha a página aberta no lugar do conteúdo (configurações ou novo timer)
+        void ClosePage()
         {
             settingsLayer.Child = null;
             mainLayer.Visibility = Visibility.Visible;
             Theme.SlideIn(mainLayer, 0, 0);
+            Focus();   // o campo de texto saiu da tela: o teclado volta para a janela
             if (stageCounter == null || stageCounter.ShowsSeconds != cfg.ShowSeconds)
             {
                 scale = 0;   // ligou/desligou os segundos: remonta o contador
@@ -1862,7 +2109,7 @@ namespace Countdown
     }
 
     // ---------------------------------------------------------------
-    // Campos de nome e data do primeiro evento, com validação e botão salvar (primeira execução)
+    // Campos de nome e data de um evento, com validação e botão salvar (primeira execução e novo timer)
     // ---------------------------------------------------------------
     class EventForm : StackPanel
     {
@@ -1966,6 +2213,33 @@ namespace Countdown
             Content = Theme.Panel(panel);
 
             KeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
+            Loaded += (_, _) => form.FocusName();
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Criar um novo timer: página aberta pelo carrossel (← ← no contador)
+    // ---------------------------------------------------------------
+    class NewTimerPage : StackPanel
+    {
+        public NewTimerPage(Action<EventItem> onCreate, Action onCancel)
+        {
+            Width = 240;
+            Margin = new Thickness(16);
+
+            var header = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            var close = Theme.Icon(Theme.GlyphClose, "Voltar (Esc)", onCancel);
+            DockPanel.SetDock(close, Dock.Right);
+            header.Children.Add(close);
+            var heading = Theme.Text("NOVO TIMER", 12, "Accent", FontWeights.SemiBold);
+            heading.VerticalAlignment = VerticalAlignment.Center;
+            header.Children.Add(heading);
+
+            var form = new EventForm();
+            form.Saved += (name, target) => onCreate(new EventItem { Name = name, Target = target });
+
+            Children.Add(header);
+            Children.Add(form);
             Loaded += (_, _) => form.FocusName();
         }
     }
