@@ -1725,6 +1725,7 @@ namespace Countdown
             VerticalAlignment = VerticalAlignment.Center,
         };
         readonly CarouselHint carousel;   // dica das setas por cima do contador
+        readonly CarouselHint pageCarousel;   // dica das setas por cima da página de novo timer (tela toda)
         TextBlock? stageTitle;
         CounterView? stageCounter;
         double scale;
@@ -1781,9 +1782,10 @@ namespace Countdown
             mainLayer.Children.Add(brush);
             mainLayer.Children.Add(toolbar);
             mainLayer.Children.Add(editor);
+            pageCarousel = new CarouselHint(settingsLayer, 1);
             var root = new Grid();
             root.Children.Add(mainLayer);
-            root.Children.Add(settingsLayer);
+            root.Children.Add(pageCarousel);
             Content = root;
 
             // O contador é (re)construído no tamanho exato da tela, sem ampliar imagem
@@ -1847,6 +1849,7 @@ namespace Countdown
             stage.Children.Clear();
             stage.Children.Add(column);
             carousel.SetScale(s);
+            pageCarousel.SetScale(s);
             UpdateStageShift();
         }
 
@@ -1897,7 +1900,7 @@ namespace Countdown
                 cfg.ActiveEvent = cfg.Events.Count - 1;   // o novo timer já aparece no contador
                 Storage.Save(cfg);
                 ClosePage();
-            }, ClosePage));
+            }, ClosePage, pageCarousel));
             settingsLayer.Child = page;
             Theme.SlideIn(page, -24, 0);
         }
@@ -1916,6 +1919,7 @@ namespace Countdown
         void ClosePage()
         {
             settingsLayer.Child = null;
+            pageCarousel.Cancel();   // saiu com Esc ou X no meio do 1º toque: some com a dica
             mainLayer.Visibility = Visibility.Visible;
             Theme.SlideIn(mainLayer, 0, 0);
             Focus();   // o campo de texto saiu da tela: o teclado volta para a janela
@@ -2232,7 +2236,9 @@ namespace Countdown
     // ---------------------------------------------------------------
     class NewTimerPage : Border
     {
-        public NewTimerPage(Action<EventItem> onCreate, Action onCancel)
+        // hint: dica já montada por quem abriu a página (a tela cheia usa uma do tamanho da tela);
+        // sem ela, a dica fica por cima da própria página (mini pop-up)
+        public NewTimerPage(Action<EventItem> onCreate, Action onCancel, CarouselHint? hint = null)
         {
             var panel = new StackPanel { Width = 240, Margin = new Thickness(16) };
 
@@ -2249,8 +2255,8 @@ namespace Countdown
 
             panel.Children.Add(header);
             panel.Children.Add(form);
-            var carousel = new CarouselHint(panel, 1);
-            Child = carousel;
+            var carousel = hint ?? new CarouselHint(panel, 1);
+            Child = hint == null ? carousel : panel;
             Loaded += (_, _) => form.FocusName();
 
             // → → volta para o contador. Num campo de texto, a seta só conta com o cursor no fim
